@@ -1,6 +1,6 @@
 name: TeamsWeb
 options:
-  xcodeVersion: "15.4"          # <-- fuerza formato compatible con Xcode 15.4
+        # <-- fuerza formato compatible con Xcode 15.4
   minimumXcodeGenVersion: 2.14.0
 targets:
   TeamsWeb:
