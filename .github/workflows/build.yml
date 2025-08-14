@@ -40,52 +40,32 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY="" \
             clean build
 
-      - name: Locate built app
-        run: |
-          echo "Buscando TeamsWeb.app en build/…"
-          find build -name "TeamsWeb.app" -maxdepth 6 -type d -print || true
-          echo "Contenido de build/Release-iphoneos:"
-          ls -la build/Release-iphoneos || true
-          echo "Contenido de build/Build/Products/Release-iphoneos:"
-          ls -la build/Build/Products/Release-iphoneos || true
-
-      - name: Prepare IPA (follow symlinks)
+      - name: Determine .app path from build settings
+        id: ap
         run: |
           set -e
-          APP_SYM="$PWD/build/Release-iphoneos/TeamsWeb.app"
-          # Resuelve el symlink a la app real (Xcode 16 pone la app en Build/Products)
-          REAL_APP="$(python3 -c 'import os; print(os.path.realpath(os.environ.get("APP_SYM","")))')"
-          # Fallback explícito si por alguna razón no resolvió:
-          if [ ! -d "$REAL_APP" ]; then
-            REAL_APP="$PWD/build/Build/Products/Release-iphoneos/TeamsWeb.app"
-          fi
-          if [ ! -d "$REAL_APP" ]; then
-            echo "❌ No se encontró la app real. Rutas probadas:"
-            echo "APP_SYM:  $APP_SYM"
-            echo "REAL_APP: $REAL_APP"
-            find build -name "TeamsWeb.app" -maxdepth 8 -type d -print
+          SETTINGS=$(mktemp)
+          xcodebuild -project TeamsWeb.xcodeproj -scheme TeamsWeb -configuration Release -sdk iphoneos -showBuildSettings > "$SETTINGS"
+          APP_DIR=$(grep -m1 " TARGET_BUILD_DIR =" "$SETTINGS" | sed -E 's/.*= //')
+          WRAPPER=$(grep -m1 " WRAPPER_NAME =" "$SETTINGS" | sed -E 's/.*= //')
+          APP_PATH="$APP_DIR/$WRAPPER"
+          echo "TARGET_BUILD_DIR=$APP_DIR"
+          echo "WRAPPER_NAME=$WRAPPER"
+          echo "APP_PATH=$APP_PATH"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ No se encontró $APP_PATH"
+            echo "Buscando alternativas bajo build/:"
+            find build -name "TeamsWeb.app" -maxdepth 8 -type d -print || true
             exit 1
           fi
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_OUTPUT"
 
-          echo "APP_SYM : $APP_SYM"
-          echo "REAL_APP: $REAL_APP"
-          ls -l "$APP_SYM" || true
-          ls -l "$REAL_APP"
-          du -sh "$REAL_APP"
-
+      - name: Prepare IPA (no symlinks)
+        run: |
+          set -e
+          APP_PATH="${{ steps.ap.outputs.APP_PATH }}"
           rm -rf Payload
           mkdir -p Payload
-          # Copia el contenido real (sin symlinks colgando)
-          /usr/bin/ditto "$REAL_APP" "Payload/TeamsWeb.app"
-          du -sh Payload/TeamsWeb.app
-
-          # Empaqueta y valida
+          /usr/bin/ditto "$APP_PATH" "Payload/TeamsWeb.app"
+          du -sh "Payload/TeamsWeb.app" || true
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload TeamsWeb-unsigned.ipa
-          unzip -t TeamsWeb-unsigned.ipa
-          ls -lh TeamsWeb-unsigned.ipa
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: TeamsWeb-unsigned
-          path: TeamsWeb-unsigned.ipa
