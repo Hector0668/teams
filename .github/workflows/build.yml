@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15   # Xcode 16
+    runs-on: macos-15   # Runner con Xcode 16
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
           set -e
           CANDIDATE=$(ls -d /Applications/Xcode*16*.app 2>/dev/null | head -n1)
           if [ -z "$CANDIDATE" ]; then
-            echo "Xcode 16 not found"; xcodebuild -version; exit 1
+            echo "Xcode 16 no encontrado"; xcodebuild -version; exit 1
           fi
           sudo xcode-select -s "$CANDIDATE/Contents/Developer"
           xcodebuild -version
@@ -40,21 +40,49 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY="" \
             clean build
 
-      - name: Prepare IPA
+      - name: Locate built app
+        run: |
+          echo "Buscando TeamsWeb.app en build/…"
+          find build -name "TeamsWeb.app" -maxdepth 6 -type d -print || true
+          echo "Contenido de build/Release-iphoneos:"
+          ls -la build/Release-iphoneos || true
+          echo "Contenido de build/Build/Products/Release-iphoneos:"
+          ls -la build/Build/Products/Release-iphoneos || true
+
+      - name: Prepare IPA (follow symlinks)
         run: |
           set -e
-          APP_PATH="$PWD/build/Release-iphoneos/TeamsWeb.app"
-          if [ ! -d "$APP_PATH" ]; then
-            echo "❌ No se encontró la app en $APP_PATH"
-            echo "Estructura de build/:"
-            find build -maxdepth 4 -type d -print
+          APP_SYM="$PWD/build/Release-iphoneos/TeamsWeb.app"
+          # Resuelve el symlink a la app real (Xcode 16 pone la app en Build/Products)
+          REAL_APP="$(python3 -c 'import os; print(os.path.realpath(os.environ.get("APP_SYM","")))')"
+          # Fallback explícito si por alguna razón no resolvió:
+          if [ ! -d "$REAL_APP" ]; then
+            REAL_APP="$PWD/build/Build/Products/Release-iphoneos/TeamsWeb.app"
+          fi
+          if [ ! -d "$REAL_APP" ]; then
+            echo "❌ No se encontró la app real. Rutas probadas:"
+            echo "APP_SYM:  $APP_SYM"
+            echo "REAL_APP: $REAL_APP"
+            find build -name "TeamsWeb.app" -maxdepth 8 -type d -print
             exit 1
           fi
+
+          echo "APP_SYM : $APP_SYM"
+          echo "REAL_APP: $REAL_APP"
+          ls -l "$APP_SYM" || true
+          ls -l "$REAL_APP"
+          du -sh "$REAL_APP"
+
           rm -rf Payload
-          mkdir Payload
-          cp -R "$APP_PATH" Payload/
+          mkdir -p Payload
+          # Copia el contenido real (sin symlinks colgando)
+          /usr/bin/ditto "$REAL_APP" "Payload/TeamsWeb.app"
+          du -sh Payload/TeamsWeb.app
+
+          # Empaqueta y valida
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload TeamsWeb-unsigned.ipa
           unzip -t TeamsWeb-unsigned.ipa
+          ls -lh TeamsWeb-unsigned.ipa
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
