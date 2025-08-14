@@ -6,10 +6,21 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15   # <- usa imagen con Xcode 16
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: |
+          set -e
+          ls -d /Applications/Xcode*.app
+          CANDIDATE=$(ls -d /Applications/Xcode*16*.app 2>/dev/null | head -n1)
+          if [ -z "$CANDIDATE" ]; then
+            echo "Xcode 16 not found on this runner"; xcodebuild -version; exit 1
+          fi
+          sudo xcode-select -s "$CANDIDATE/Contents/Developer"
+          xcodebuild -version
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -17,10 +28,8 @@ jobs:
       - name: Clean any previous .xcodeproj
         run: rm -rf TeamsWeb.xcodeproj
 
-      - name: Generate Xcode project (Xcode 15.4)
-        run: |
-          xcodegen generate --spec project.yml
-          grep -E "LastUpgradeCheck|objectVersion|compatibilityVersion" -n TeamsWeb.xcodeproj/project.pbxproj || true
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
 
       - name: List schemes
         run: xcodebuild -list -project TeamsWeb.xcodeproj
