@@ -14,8 +14,13 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: Generate Xcode project
-        run: xcodegen generate --spec project.yml
+      - name: Clean any previous .xcodeproj
+        run: rm -rf TeamsWeb.xcodeproj
+
+      - name: Generate Xcode project (Xcode 15.4)
+        run: |
+          xcodegen generate --spec project.yml
+          grep -E "LastUpgradeCheck|objectVersion|compatibilityVersion" -n TeamsWeb.xcodeproj/project.pbxproj || true
 
       - name: List schemes
         run: xcodebuild -list -project TeamsWeb.xcodeproj
