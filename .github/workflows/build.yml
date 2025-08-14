@@ -1,0 +1,56 @@
+name: Build IPA (unsigned) - macOS
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sanity check: list repo
+        run: |
+          pwd
+          ls -la
+          echo "----"
+          ls -la Sources || true
+          echo "----"
+          cat project.yml || true
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          xcodegen generate --spec project.yml
+          echo "---- GENERATED FILES ----"
+          ls -la
+          echo "---- LIST PROJECT ----"
+          xcodebuild -list -project TeamsWeb.xcodeproj
+
+      - name: Build Archive (signing disabled)
+        run: |
+          xcodebuild -list -project TeamsWeb.xcodeproj | grep -A1 "Schemes" || true
+          xcodebuild clean archive             -project TeamsWeb.xcodeproj             -scheme TeamsWeb             -configuration Release             -sdk iphoneos             -archivePath build/TeamsWeb.xcarchive             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGNING_IDENTITY=""             DEVELOPMENT_TEAM=""             PRODUCT_BUNDLE_IDENTIFIER=com.yourid.TeamsWeb
+
+      - name: Package IPA
+        run: |
+          APP_PATH="build/TeamsWeb.xcarchive/Products/Applications/TeamsWeb.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "No se encontró la app en $APP_PATH"
+            echo "Contenido de build:"
+            find build -maxdepth 4 -type d -print
+            exit 1
+          fi
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -r TeamsWeb-unsigned.ipa Payload
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TeamsWeb-unsigned
+          path: TeamsWeb-unsigned.ipa
